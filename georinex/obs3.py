@@ -1,12 +1,13 @@
 from .io import opener
 from pathlib import Path
-import numpy as np
 import logging
 from datetime import datetime, timedelta
 import io
 import xarray
 from typing import Dict, Union, List, Tuple, Any, Sequence
 from typing.io import TextIO
+import numpy as np
+
 try:
     from pymap3d import ecef2geodetic
 except ImportError:
@@ -43,7 +44,8 @@ def rinexobs3(fn: Union[TextIO, str, Path],
 
     fast:
           TODO: FUTURE, not yet enabled for OBS3
-          speculative preallocation based on minimum SV assumption and file size.
+          speculative preallocation based on minimum SV assumption and
+          file size.
           Avoids double-reading file and more complicated linked lists.
           Believed that Numpy array should be faster than lists anyway.
           Reduce Nsvmin if error (let us know)
@@ -82,7 +84,8 @@ def rinexobs3(fn: Union[TextIO, str, Path],
 
             try:
                 time = _timeobs(ln)
-            except ValueError:  # garbage between header and RINEX data
+            except ValueError:
+                # garbage between header and RINEX data
                 logging.debug(f'garbage detected in {fn}, trying to parse at next time step')
                 continue
 # %% get SV indices
@@ -91,7 +94,7 @@ def rinexobs3(fn: Union[TextIO, str, Path],
 
             sv = []
             raw = ''
-            for i, ln in zip(range(Nsv), f):
+            for _, ln in zip(range(Nsv), f):
                 sv.append(ln[:3])
                 raw += ln[3:]
 
@@ -282,9 +285,12 @@ def obsheader3(f: TextIO,
     try:
         t0s = hdr['TIME OF FIRST OBS']
         # NOTE: must do second=int(float()) due to non-conforming files
-        hdr['t0'] = datetime(year=int(t0s[:6]), month=int(t0s[6:12]), day=int(t0s[12:18]),
-                             hour=int(t0s[18:24]), minute=int(t0s[24:30]), second=int(float(t0s[30:36])),
-                             microsecond=int(float(t0s[30:43]) % 1 * 1000000))
+        hdr['t0'] = datetime(
+            year=int(t0s[:6]), month=int(t0s[6:12]),
+            day=int(t0s[12:18]), hour=int(t0s[18:24]),
+            minute=int(t0s[24:30]), second=int(float(t0s[30:36])),
+            microsecond=int(float(t0s[30:43]) % 1 * 1000000)
+        )
     except (KeyError, ValueError):
         pass
 
@@ -299,8 +305,9 @@ def obsheader3(f: TextIO,
 
         fields = {k: fields[k] for k in use if k in fields}
 
-    # perhaps this could be done more efficiently, but it's probably low impact on overall program.
-    # simple set and frozenset operations do NOT preserve order, which would completely mess up reading!
+    # perhaps this could be done more efficiently, but it's probably low
+    # impact on overall program. Simple set and frozenset operations
+    # do NOT preserve order, which would completely mess up reading!
     sysind = {}
     if isinstance(meas, (tuple, list, np.ndarray)):
         for sk in fields:  # iterate over each system
