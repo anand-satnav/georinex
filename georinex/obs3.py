@@ -15,7 +15,6 @@ except ImportError:
 #
 from .common import determine_time_system, _check_time_interval
 from .io import rinexinfo
-"""https://github.com/mvglasow/satstat/wiki/NMEA-IDs"""
 
 SBAS = 100  # offset for ID
 GLONASS = 37
@@ -86,7 +85,7 @@ def rinexobs3(fn: Union[TextIO, str, Path],
                 time = _timeobs(ln)
             except ValueError:
                 # garbage between header and RINEX data
-                logging.debug(f'garbage detected in {fn}, trying to parse at next time step')
+                logging.debug(f'garbage in {fn}, parse at next time step')
                 continue
 # %% get SV indices
             # Number of visible satellites this time %i3  pg. A13
@@ -119,7 +118,9 @@ def rinexobs3(fn: Union[TextIO, str, Path],
             data = _epoch(data, raw, hdr, time, sv, useindicators, verbose)
 
 # %% patch SV names in case of "G 7" => "G07"
-    data = data.assign_coords(sv=[s.replace(' ', '0') for s in data.sv.values.tolist()])
+    data = data.assign_coords(
+        sv=[s.replace(' ', '0') for s in data.sv.values.tolist()]
+    )
 # %% other attributes
     data.attrs['version'] = hdr['version']
     data.attrs['rinextype'] = 'obs'
@@ -206,9 +207,8 @@ def _epoch(data: xarray.Dataset, raw: str,
         epoch_data = xarray.Dataset(dsf, coords={'time': [time], 'sv': gsv})
         if len(data) == 0:
             data = epoch_data
-        elif len(hdr['fields']) == 1:  # one satellite system selected, faster to process
-            data = xarray.concat((data, epoch_data), dim='time')
-        else:  # general case, slower for different satellite systems all together
+        else:
+            # general case, slower for all satellite systems together
             data = xarray.merge((data, epoch_data))
 
     return data
@@ -276,7 +276,8 @@ def obsheader3(f: TextIO,
 
 # %% list with x,y,z cartesian (OPTIONAL)
     try:
-        hdr['position'] = [float(j) for j in hdr['APPROX POSITION XYZ'].split()]
+        hdr['position'] = \
+            [float(j) for j in hdr['APPROX POSITION XYZ'].split()]
         if ecef2geodetic is not None:
             hdr['position_geodetic'] = ecef2geodetic(*hdr['position'])
     except (KeyError, ValueError):
