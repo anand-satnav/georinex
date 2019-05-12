@@ -66,9 +66,11 @@ def rinexobs3(fn: Union[TextIO, str, Path],
 
     if not meas or not meas[0].strip():
         meas = None
-# %% allocate
+# %% initialize
     # times = obstime3(fn)
     data = xarray.Dataset({}, coords={'time': [], 'sv': []})
+    # TBD need to store final data as dictionary
+
     if tlim is not None and not isinstance(tlim[0], datetime):
         raise TypeError('time bounds are specified as datetime.datetime')
 
@@ -76,6 +78,7 @@ def rinexobs3(fn: Union[TextIO, str, Path],
 # %% loop
     with opener(fn) as f:
         hdr = obsheader3(f, use, meas)
+# %% allocate TBD
 # %% process OBS file
         for ln in f:
             if not ln.startswith('>'):  # end of file
@@ -116,6 +119,10 @@ def rinexobs3(fn: Union[TextIO, str, Path],
                 print(time, end="\r")
 
             data = _epoch(data, raw, hdr, time, sv, useindicators, verbose)
+
+# %% Generate DataArray TBD
+
+# %% Generate DataSet TBD
 
 # %% patch SV names in case of "G 7" => "G07"
     data = data.assign_coords(
