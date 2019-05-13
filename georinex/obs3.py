@@ -69,7 +69,8 @@ def rinexobs3(fn: Union[TextIO, str, Path],
 # %% initialize
     # times = obstime3(fn)
     data = xarray.Dataset({}, coords={'time': [], 'sv': []})
-    # TBD need to store final data as dictionary
+    # need to store temporary data as dictionary
+    data2: Dict[str, Any] = {}
 
     if tlim is not None and not isinstance(tlim[0], datetime):
         raise TypeError('time bounds are specified as datetime.datetime')
@@ -78,7 +79,14 @@ def rinexobs3(fn: Union[TextIO, str, Path],
 # %% loop
     with opener(fn) as f:
         hdr = obsheader3(f, use, meas)
-# %% allocate TBD
+# %% allocate
+        meas_keys = [s for sk in hdr['fields'] for s in hdr['fields'][sk]]
+        for key in meas_keys:
+            data2[key] = {'time': [], 'sv': [], 'val': []}
+            if useindicators:
+                indkey = key+'lli' if key.startswith(('L1', 'L2')) else key+'ssi'
+                data2[indkey] = {'time': [], 'sv': [], 'val': []}
+
 # %% process OBS file
         for ln in f:
             if not ln.startswith('>'):  # end of file
@@ -118,12 +126,28 @@ def rinexobs3(fn: Union[TextIO, str, Path],
             if verbose:
                 print(time, end="\r")
 
-            data = _epoch(data, raw, hdr, time, sv, useindicators, verbose)
+            data2 = _epoch(data2, raw, hdr, time, sv, useindicators, verbose)
+# %% Generate DataArray
+    data_final: List = []
+    for sk in data2:
+        sysdata = data2[sk]
+        allsv = np.sort(
+            np.array(list(set([sv for svl in sysdata['sv'] for sv in svl])))
+        )
+        valarray = np.empty((len(sysdata['time']), len(allsv)))
+        valarray[:] = np.nan
+        for i, (svl, ml) in enumerate(zip(sysdata['sv'], sysdata['val'])):
+            idx = np.searchsorted(allsv, svl)
+            valarray[i, idx] = ml
 
-# %% Generate DataArray TBD
+        da = xarray.DataArray(
+            valarray, coords=[sysdata['time'], allsv],
+            dims=['time', 'sv'], name=sk
+            )
+        data_final.append(da)
 
-# %% Generate DataSet TBD
-
+# %% Generate DataSet
+    data = xarray.merge(data_final)
 # %% patch SV names in case of "G 7" => "G07"
     data = data.assign_coords(
         sv=[s.replace(' ', '0') for s in data.sv.values.tolist()]
@@ -176,12 +200,12 @@ def obstime3(fn: Union[TextIO, Path],
     return np.asarray(times)
 
 
-def _epoch(data: xarray.Dataset, raw: str,
+def _epoch(data2: Dict[str, Any], raw: str,
            hdr: Dict[str, Any],
            time: datetime,
            sv: List[str],
            useindicators: bool,
-           verbose: bool) -> xarray.Dataset:
+           verbose: bool) -> Dict[str, Any]:
     """
     block processing of each epoch (time step)
     """
@@ -199,36 +223,45 @@ def _epoch(data: xarray.Dataset, raw: str,
         garr = darr[si, :]
         garr = garr[:, di]
 
-        gsv = np.array(sv)[si]
+        gsv = [sv[i] for i in si]
 
-        dsf: Dict[str, tuple] = {}
         for i, k in enumerate(hdr['fields'][sk]):
-            dsf[k] = (('time', 'sv'), np.atleast_2d(garr[:, i*3]))
 
-            if useindicators:
-                dsf = _indicators(dsf, k, garr[:, i*3+1:i*3+3])
+            if time not in data2[k]['time']:
+                data2[k]['time'].append(time)
+                data2[k]['sv'].append(gsv)
+                data2[k]['val'].append(garr[:, i*3].flatten())
+                if useindicators:
+                    data2 = _indicators(data2, k, garr[:, i*3+1:i*3+3], False)
+
+            else:
+                data2[k]['sv'][-1] = data2[k]['sv'][-1] + gsv
+                data2[k]['val'][-1] = np.concatenate([data2[k]['val'][-1], garr[:, i*3].flatten()])
+                if useindicators:
+                    data2 = _indicators(data2, k, garr[:, i*3+1:i*3+3], True)
 
         if verbose:
             print(time, '\r', end='')
 
-        epoch_data = xarray.Dataset(dsf, coords={'time': [time], 'sv': gsv})
-        if len(data) == 0:
-            data = epoch_data
-        else:
-            # general case, slower for all satellite systems together
-            data = xarray.merge((data, epoch_data))
-
-    return data
+    return data2
 
 
-def _indicators(d: dict, k: str, arr: np.ndarray) -> Dict[str, tuple]:
+def _indicators(d: dict, k: str, arr: np.ndarray, concat: bool) -> Dict[str, Any]:
     """
     handle LLI (loss of lock) and SSI (signal strength)
     """
-    if k.startswith(('L1', 'L2')):
-        d[k+'lli'] = (('time', 'sv'), np.atleast_2d(arr[:, 0]))
+    if concat:
+        if k.startswith(('L1', 'L2')):
+            d[k+'lli']['val'][-1] = np.concatenate([d[k+'lli']['val'][-1],
+                                        arr[:, 0].flatten()])
 
-    d[k+'ssi'] = (('time', 'sv'), np.atleast_2d(arr[:, 1]))
+        d[k+'ssi']['val'][-1] = np.concatenate([d[k+'ssi']['val'][-1],
+                                    arr[:, 1].flatten()])
+    else:
+        if k.startswith(('L1', 'L2')):
+            d[k+'lli']['val'].append(arr[:, 0].flatten())
+
+        d[k+'ssi']['val'].append(arr[:, 1].flatten())
 
     return d
 
